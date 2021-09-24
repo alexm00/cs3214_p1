@@ -36,9 +36,11 @@ usage(char *progname)
 
 /* Build a prompt */
 static char *
-build_prompt(void)
-{
-    return strdup("cush> ");
+build_prompt(int* com_num){
+	
+	(*com_num) += 1;
+	
+    return strdup(" cush> ");
 }
 
 enum job_status {
@@ -89,6 +91,11 @@ add_job(struct ast_pipeline *pipe)
     struct job * job = malloc(sizeof *job);
     job->pipe = pipe;
     job->num_processes_alive = 0;
+	
+	if(pipe->bg_job){
+		job->status = BACKGROUND;
+	}
+	
     list_push_back(&job_list, &job->elem);
     for (int i = 1; i < MAXJOBS; i++) {
         if (jid2job[i] == NULL) {
@@ -255,9 +262,36 @@ handle_child_status(pid_t pid, int status)
 
 }
 
-int
-main(int ac, char *av[])
-{
+static int base_commands(char* cmd){
+	
+	if(strcmp(cmd, "exit") == 0){
+		return 1;
+	}
+	
+	if(strcmp(cmd, "kill") == 0){
+		return 2;
+	}
+	
+	if(strcmp(cmd, "stop") == 0){
+		return 3;
+	}
+	
+	if(strcmp(cmd, "jobs") == 0){
+		return 4;
+	}
+	
+	if(strcmp(cmd, "fg") == 0){
+		return 5;
+	}
+	
+	if(strcmp(cmd, "bg") == 0){
+		return 6;
+	}
+	
+	return -1;
+}
+
+int main(int ac, char *av[]){
     int opt;
 
     /* Process command-line arguments. See getopt(3) */
@@ -273,11 +307,12 @@ main(int ac, char *av[])
     signal_set_handler(SIGCHLD, sigchld_handler);
     termstate_init();
 
+	int com_num = -1;
     /* Read/eval loop. */
     for (;;) {
 
         /* Do not output a prompt unless shell's stdin is a terminal */
-        char * prompt = isatty(0) ? build_prompt() : NULL;
+        char * prompt = isatty(0) ? build_prompt(&com_num) : NULL;
         char * cmdline = readline(prompt);
         free (prompt);
 
@@ -286,16 +321,87 @@ main(int ac, char *av[])
 
         struct ast_command_line * cline = ast_parse_command_line(cmdline);
         free (cmdline);
-        if (cline == NULL)                  /* Error in command line */
+        if (cline == NULL){                  /* Error in command line */
             continue;
+		}	
 
         if (list_empty(&cline->pipes)) {    /* User hit enter */
             ast_command_line_free(cline);
             continue;
         }
+		else{
+			for (struct list_elem * e = list_begin (&cline->pipes); 
+			e != list_end (&cline->pipes); 
+			e = list_next (e)) {
+				struct ast_pipeline *pipe = list_entry(e, struct ast_pipeline, elem);
+			
+				struct job* cur_job = add_job(pipe);
+				cur_job->jid = cur_job->jid;
+				//string for output text, to print to console or to pass as input to next command////////////
+		
+				for (struct list_elem * e2 = list_begin(&pipe->commands); 
+				e2 != list_end(&pipe->commands); 
+				e2 = list_next(e2)) {
+					struct ast_command *cmd = list_entry(e2, struct ast_command, elem);
+					//how to input from file//////////////////////////////////////////////////////////////////
+					//instead, call method to test if it is a base command 
+					switch(base_commands(*(cmd->argv))){
+						case 1:
+						//exit cmd, causes custom shell to exit
+						//call method to clean up all jobs and pipelines left/////////////////////////////////
+							return 0;
+						case 2:
+							//implement kill
+							//kills target job (^C)
+							break;
+						case 3:
+							//implements stop
+							//stops target job (^Z)
+							break;
+						case 4:
+							//implements jobs
+							//prints all job num, status, and command
+							for (struct list_elem * e3 = list_begin(&job_list); 
+							e3 != list_end(&job_list); 
+							e3 = list_next(e3)) {
+								struct job* j = list_entry(e3, struct job, elem);
+								print_job(j);
+							}
+							break;
+						case 5:
+							//implement bg
+							//takes the most recently "stopped" process/job and puts it in the background
+							break;
+						case 6:
+							//implement fg
+							//takes the most recently "stopped" process/job and puts it in the foreground
+							break;
+						default:
+							//execute other command
+							//execute_other(cmd->argv, bfg);
+							break;
+					}
+			
+				}
+				
+				//print output to console or output file
+		
+			}
+			
+		}
+		
+		/////////////////////////////////
 
         ast_command_line_print(cline);
         ast_command_line_free(cline);
     }
     return 0;
 }
+
+
+
+
+
+
+
+
