@@ -311,6 +311,8 @@ int main(int ac, char *av[]){
     /* Read/eval loop. */
     for (;;) {
 
+		//check job status///////////////////////////////////////////////////////////////////////////////////
+	
         /* Do not output a prompt unless shell's stdin is a terminal */
         char * prompt = isatty(0) ? build_prompt(&com_num) : NULL;
         char * cmdline = readline(prompt);
@@ -370,10 +372,22 @@ int main(int ac, char *av[]){
 							break;
 						case 5:
 							//implement bg
+							for (struct list_elem * e3 = list_end(&job_list); 
+							e3 != list_begin&job_list); 
+							e3 = list_prev(e3)) {
+								struct job* j = list_entry(e3, struct job, elem);
+								//start job////////////////////////////////////////////////////////////////////
+							}
 							//takes the most recently "stopped" process/job and puts it in the background
 							break;
 						case 6:
 							//implement fg
+							for (struct list_elem * e3 = list_end(&job_list); 
+							e3 != list_begin&job_list); 
+							e3 = list_prev(e3)) {
+								struct job* j = list_entry(e3, struct job, elem);
+								//start job////////////////////////////////////////////////////////////////////
+							}
 							//takes the most recently "stopped" process/job and puts it in the foreground
 							break;
 						default:
