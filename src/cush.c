@@ -62,6 +62,7 @@ struct job {
                                         stopped after having been in foreground */
 
     /* Add additional fields here if needed. */
+    int pid; /* Job pid */
 };
 
 /* Utility functions for job list management.
@@ -291,6 +292,32 @@ static int base_commands(char* cmd){
 	return -1;
 }
 
+static void job_helper(){
+    for (struct list_elem * e = list_begin(&job_list); 
+		e != list_end(&job_list); 
+		e = list_next(e)) {
+		struct job* j = list_entry(e, struct job, elem);
+		if(status = waitpid(pid, WNOHANG)) {
+            job_delete(j);
+
+            // if(status != exited)
+            // {
+            //     if(checkExpiryTime() == true)
+            //         kill(pid, SIGKILL);
+            //     else
+            //         sleep(x); 
+            // }
+        }
+	}
+}
+
+static int execute(char* argv[], int fgbg = 0){
+    if (fork() == 0){
+        execvp();
+    }
+    return pid;
+}
+
 int main(int ac, char *av[]){
     int opt;
 
@@ -312,6 +339,7 @@ int main(int ac, char *av[]){
     for (;;) {
 
 		//check job status///////////////////////////////////////////////////////////////////////////////////
+        job_helper();
 	
         /* Do not output a prompt unless shell's stdin is a terminal */
         char * prompt = isatty(0) ? build_prompt(&com_num) : NULL;
@@ -339,6 +367,7 @@ int main(int ac, char *av[]){
 			
 				struct job* cur_job = add_job(pipe);
 				cur_job->jid = cur_job->jid;
+                cur_job->pid = execute(cmd->argv, cmd->bfg);
 				//string for output text, to print to console or to pass as input to next command////////////
 		
 				for (struct list_elem * e2 = list_begin(&pipe->commands); 
