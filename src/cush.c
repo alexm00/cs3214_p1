@@ -60,9 +60,9 @@ struct job {
     int  num_processes_alive;   /* The number of processes that we know to be alive */
     struct termios saved_tty_state;  /* The state of the terminal when this job was 
                                         stopped after having been in foreground */
-
+	
     /* Add additional fields here if needed. */
-    int pid; /* Job pid */
+	int pid;
 };
 
 /* Utility functions for job list management.
@@ -247,8 +247,8 @@ wait_for_job(struct job *job)
 
 
 static void
-handle_child_status(pid_t pid, int status)
-{
+handle_child_status(pid_t pid, int status){
+	
     assert(signal_is_blocked(SIGCHLD));
 
     /* To be implemented. 
@@ -260,62 +260,152 @@ handle_child_status(pid_t pid, int status)
      *         num_processes_alive if appropriate.
      *         If a process was stopped, save the terminal state.
      */
+	 
+	struct job* j = NULL;
+	for (struct list_elem * e = list_begin(&job_list); 
+	e != list_end(&job_list); 
+	e = list_next(e)) {
+		j = list_entry(e, struct job, elem);
+		if(j->pid == pid){
+			break;
+		}
+	}
+	
+	if(j == NULL){
+		return;
+	}
+	else if(pid != j->pid){
+		return;
+	}
+	else{
+		
+		if(WIFEXITED(status) || WIFSIGNALED(status)){
+			//check for num_process_alive???
+			j->num_processes_alive -= 1;
+			if(j->num_processes_alive == 0){
+				delete_job(j);
+			}
+		}
+		else if(WIFSTOPPED(status)){
+			if(j->status = FOREGROUND){
+				//save tty state///////////////////////////////////////////////////////////////////////
+				j->saved_tty_state = j->saved_tty_state;
+			}
+			else{
+				job->status = STOPPED;
+				if(WSTOPSIG(status) == SIGTTOU || WSTOPSIG(status) == SIGTTIN){
+					job->status = NEEDSTERMINAL;
+				}
+			}
 
+		}
+	}
 }
 
-static int base_commands(char* cmd){
+static void run_pipe(char* cmd){//, bool in_pipe = False){ //incase I add commands in pipeline can be built-ins
 	
 	if(strcmp(cmd, "exit") == 0){
-		return 1;
+		//call method to clean up all jobs and pipelines left/////////////////////////////////
+		exit(0);
 	}
-	
-	if(strcmp(cmd, "kill") == 0){
-		return 2;
+	else if(strcmp(cmd, "kill") == 0){
+		kill(get_job_from_jid(id)->pid, SIGTERM);
 	}
-	
-	if(strcmp(cmd, "stop") == 0){
-		return 3;
+	else if(strcmp(cmd, "stop") == 0){
+		kill(get_job_from_jid(id)->pid, SIGSTP);
 	}
-	
-	if(strcmp(cmd, "jobs") == 0){
-		return 4;
+	else if(strcmp(cmd, "jobs") == 0){
+		for (struct list_elem * e3 = list_begin(&job_list); 
+		e3 != list_end(&job_list); 
+		e3 = list_next(e3)) {
+			struct job* j = list_entry(e3, struct job, elem);
+			print_job(j);
+		}
 	}
-	
-	if(strcmp(cmd, "fg") == 0){
-		return 5;
+	else if(strcmp(cmd, "fg") == 0){
+		//check for an existing foreground job???////////////////////////////////////////////////
+		struct job* j = get_job_from_jid(id);
+		//set tty state////////////////////////////////////////////////////////////////////////
+		kill(j->pid, SIGCONT);
+		j->status = FOREGROUND;
+		tcsetpgrp(STDIN_FILENO, j->pid);
+		wait_for_job(j);
 	}
-	
-	if(strcmp(cmd, "bg") == 0){
-		return 6;
+	else if(strcmp(cmd, "bg") == 0){
+		struct job* j = get_job_from_jid(id);
+		kill(j->pid, SIGCONT);
+		j->status = BACKGROUND;
 	}
-	
-	return -1;
-}
-
-static void job_helper(){
-    for (struct list_elem * e = list_begin(&job_list); 
-		e != list_end(&job_list); 
-		e = list_next(e)) {
-		struct job* j = list_entry(e, struct job, elem);
-		if(status = waitpid(pid, WNOHANG)) {
-            job_delete(j);
-
-            // if(status != exited)
-            // {
-            //     if(checkExpiryTime() == true)
-            //         kill(pid, SIGKILL);
-            //     else
-            //         sleep(x); 
-            // }
-        }
+	else{
+		execute();
 	}
 }
 
-static int execute(char* argv[], int fgbg = 0){
-    if (fork() == 0){
-        execvp();
-    }
-    return pid;
+/*static void check_jobs(){
+	for (struct list_elem * e3 = list_begin(&job_list); 
+	e3 != list_end(&job_list); 
+	e3 = list_next(e3)) {
+		struct job* j = list_entry(e3, struct job, elem);
+		//int s;
+		if(s = waitpid(pid, WNOHANG)){
+			delete_job(j);
+             //if(status != exited)
+             //{
+               //  if(checkExpiryTime() == true)
+                 //   kill(pid, SIGKILL);
+                 //else
+                   //sleep(x); // or whatever is appropriate in your case.
+             //}
+         }
+	}
+}
+*/
+static void execute(struct ast_pipeline* pipe){
+	
+	struct job* cur_job = add_job(pipe);
+				
+	int pid = fork();
+	
+	if(pid == 0){
+		int size = list_size(&pipe->commands);
+		
+		int pipes[size][2];
+		for(int i = 0; i < size; i++){
+			pipe(pipes[i]);
+		}
+		
+		
+		exit();
+	}
+	
+	cur_job->num_processes_alive += 1;
+	cur_job->pid = pid;
+	setpgid(pid, 0);
+	if(cur_job->status = FOREGROUND){
+		tcsetpgrp(STDIN_FILENO, pid);
+		wait_for_job(cur_job);
+	}
+	
+				//string for output text, to print to console or to pass as input to next command////////////
+		
+				for (struct list_elem * e2 = list_begin(&pipe->commands); 
+				e2 != list_end(&pipe->commands); 
+				e2 = list_next(e2)) {
+					struct ast_command *cmd = list_entry(e2, struct ast_command, elem);
+					//how to input from file//////////////////////////////////////////////////////////////////
+			
+				}
+				
+				//print output to console or output file
+	
+	
+	
+	
+	/*int pid = fork();
+	if(pid == 0){
+		execvp(argv[0], argv);
+	}
+	return pid;*/
 }
 
 int main(int ac, char *av[]){
@@ -339,7 +429,8 @@ int main(int ac, char *av[]){
     for (;;) {
 
 		//check job status///////////////////////////////////////////////////////////////////////////////////
-        job_helper();
+		//check_jobs();
+	
 	
         /* Do not output a prompt unless shell's stdin is a terminal */
         char * prompt = isatty(0) ? build_prompt(&com_num) : NULL;
@@ -364,70 +455,8 @@ int main(int ac, char *av[]){
 			e != list_end (&cline->pipes); 
 			e = list_next (e)) {
 				struct ast_pipeline *pipe = list_entry(e, struct ast_pipeline, elem);
-			
-				struct job* cur_job = add_job(pipe);
-				cur_job->jid = cur_job->jid;
-                cur_job->pid = execute(cmd->argv, cmd->bfg);
-				//string for output text, to print to console or to pass as input to next command////////////
-		
-				for (struct list_elem * e2 = list_begin(&pipe->commands); 
-				e2 != list_end(&pipe->commands); 
-				e2 = list_next(e2)) {
-					struct ast_command *cmd = list_entry(e2, struct ast_command, elem);
-					//how to input from file//////////////////////////////////////////////////////////////////
-					//instead, call method to test if it is a base command 
-					switch(base_commands(*(cmd->argv))){
-						case 1:
-						//exit cmd, causes custom shell to exit
-						//call method to clean up all jobs and pipelines left/////////////////////////////////
-							return 0;
-						case 2:
-							//implement kill
-							//kills target job (^C)
-							break;
-						case 3:
-							//implements stop
-							//stops target job (^Z)
-							break;
-						case 4:
-							//implements jobs
-							//prints all job num, status, and command
-							for (struct list_elem * e3 = list_begin(&job_list); 
-							e3 != list_end(&job_list); 
-							e3 = list_next(e3)) {
-								struct job* j = list_entry(e3, struct job, elem);
-								print_job(j);
-							}
-							break;
-						case 5:
-							//implement bg
-							for (struct list_elem * e3 = list_end(&job_list); 
-							e3 != list_begin&job_list); 
-							e3 = list_prev(e3)) {
-								struct job* j = list_entry(e3, struct job, elem);
-								//start job////////////////////////////////////////////////////////////////////
-							}
-							//takes the most recently "stopped" process/job and puts it in the background
-							break;
-						case 6:
-							//implement fg
-							for (struct list_elem * e3 = list_end(&job_list); 
-							e3 != list_begin&job_list); 
-							e3 = list_prev(e3)) {
-								struct job* j = list_entry(e3, struct job, elem);
-								//start job////////////////////////////////////////////////////////////////////
-							}
-							//takes the most recently "stopped" process/job and puts it in the foreground
-							break;
-						default:
-							//execute other command
-							//execute_other(cmd->argv, bfg);
-							break;
-					}
-			
-				}
 				
-				//print output to console or output file
+				execute(pipe);
 		
 			}
 			
