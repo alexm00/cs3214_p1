@@ -290,6 +290,7 @@ handle_child_status(pid_t pid, int status){
 			if(j->status = FOREGROUND){
 				//save tty state///////////////////////////////////////////////////////////////////////
 				j->saved_tty_state = j->saved_tty_state;
+				job->status = STOPPED;
 			}
 			else{
 				job->status = STOPPED;
@@ -302,7 +303,10 @@ handle_child_status(pid_t pid, int status){
 	}
 }
 
-static void run_pipe(char* cmd){//, bool in_pipe = False){ //incase I add commands in pipeline can be built-ins
+static void run_pipe(struct ast_pipeline *pipe){//, bool in_pipe = False){ //incase I add commands in pipeline can be built-ins
+	char** av = pipe->commands->argv;
+	
+	//parse pipeline for command arguments, determine validity of built-in commands, and retrieve job number for appropriate builtins;
 	
 	if(strcmp(cmd, "exit") == 0){
 		//call method to clean up all jobs and pipelines left/////////////////////////////////
@@ -337,7 +341,7 @@ static void run_pipe(char* cmd){//, bool in_pipe = False){ //incase I add comman
 		j->status = BACKGROUND;
 	}
 	else{
-		execute();
+		execute(pipe);
 	}
 }
 
@@ -375,6 +379,7 @@ static void execute(struct ast_pipeline* pipe){
 		}
 		
 		
+		
 		exit();
 	}
 	
@@ -397,15 +402,6 @@ static void execute(struct ast_pipeline* pipe){
 				}
 				
 				//print output to console or output file
-	
-	
-	
-	
-	/*int pid = fork();
-	if(pid == 0){
-		execvp(argv[0], argv);
-	}
-	return pid;*/
 }
 
 int main(int ac, char *av[]){
@@ -456,7 +452,7 @@ int main(int ac, char *av[]){
 			e = list_next (e)) {
 				struct ast_pipeline *pipe = list_entry(e, struct ast_pipeline, elem);
 				
-				execute(pipe);
+				run_pipe(pipe);
 		
 			}
 			
