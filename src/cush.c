@@ -12,8 +12,8 @@
 #include <string.h>
 #include <termios.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include <assert.h>
-#include <time.h>
 
 /* Since the handed out code contains a number of unused functions. */
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -36,7 +36,6 @@ usage(char *progname)
     exit(EXIT_SUCCESS);
 }
 
-/* Build a prompt */
 static char *
 build_prompt(int* com_num, char custom_prompt[]){
     (*com_num) += 1;
@@ -128,7 +127,35 @@ struct job {
 #define MAXJOBS (1<<16)
 static struct list job_list;
 
-static struct job * jid2job[MAXJOBS];
+static struct job* jid2job[MAXJOBS];
+
+static int stopped_jobs[MAXJOBS];
+static int num_stop_job = 0;
+
+static void add_stopped_job(int jid){
+	stopped_jobs[num_stop_job] = jid;
+	num_stop_job++;
+}
+
+static void started_stop_job(int jid){
+	bool started = false;
+	for(int i = 0; i < num_stop_job; i++){
+		if(!started && jid == stopped_jobs[i]){
+			started = true;
+		}
+		if(started){
+			if(i < num_stop_job-1){
+				stopped_jobs[i] = stopped_jobs[i+1];
+			}
+			else if(i == num_stop_job - 1){
+				stopped_jobs[i] = 0;
+			}
+		}
+	}
+	if(started){
+		num_stop_job--;
+	}
+}
 
 /* Return job corresponding to jid */
 static struct job * 
@@ -338,13 +365,17 @@ handle_child_status(pid_t pid, int status){
 			//check for num_process_alive???
 			j->num_processes_alive -= 1;
 			if(j->num_processes_alive == 0){
+				if(j->status == FOREGROUND){
+					termstate_give_terminal_back_to_shell();
+				}
 				delete_job(j);
 			}
 		}
 		else if(WIFSTOPPED(status)){
 			if(j->status == FOREGROUND){
-				//save tty state///////////////////////////////////////////////////////////////////////
-				j->saved_tty_state = j->saved_tty_state;
+				//save tty state
+				termstate_save(&j->saved_tty_state);
+				termstate_give_terminal_back_to_shell();
 				j->status = STOPPED;
 			}
 			else{
@@ -353,112 +384,309 @@ handle_child_status(pid_t pid, int status){
 					j->status = NEEDSTERMINAL;
 				}
 			}
-
+			add_stopped_job(j->jid);
 		}
 	}
 }
 
-static void run_pipe(struct ast_pipeline *pipe){//, bool in_pipe = False){ //incase I add commands in pipeline can be built-ins
-// 	char** av = pipe->commands->argv;
+static void execute(struct ast_pipeline* pipeline){
 	
-// 	//parse pipeline for command arguments, determine validity of built-in commands, and retrieve job number for appropriate builtins;
+	struct job* cur_job = add_job(pipeline);
+				
+	signal_block(SIGCHLD);
+				
+	int pid = fork();
 	
-// 	if(strcmp(cmd, "exit") == 0){
-// 		//call method to clean up all jobs and pipelines left/////////////////////////////////
-// 		exit(0);
-// 	}
-// 	else if(strcmp(cmd, "kill") == 0){
-// 		kill(get_job_from_jid(id)->pid, SIGTERM);
-// 	}
-// 	else if(strcmp(cmd, "stop") == 0){
-// 		kill(get_job_from_jid(id)->pid, SIGSTP);
-// 	}
-// 	else if(strcmp(cmd, "jobs") == 0){
-// 		for (struct list_elem * e3 = list_begin(&job_list); 
-// 		e3 != list_end(&job_list); 
-// 		e3 = list_next(e3)) {
-// 			struct job* j = list_entry(e3, struct job, elem);
-// 			print_job(j);
-// 		}
-// 	}
-// 	else if(strcmp(cmd, "fg") == 0){
-// 		//check for an existing foreground job???////////////////////////////////////////////////
-// 		struct job* j = get_job_from_jid(id);
-// 		//set tty state////////////////////////////////////////////////////////////////////////
-// 		kill(j->pid, SIGCONT);
-// 		j->status = FOREGROUND;
-// 		tcsetpgrp(STDIN_FILENO, j->pid);
-// 		wait_for_job(j);
-// 	}
-// 	else if(strcmp(cmd, "bg") == 0){
-// 		struct job* j = get_job_from_jid(id);
-// 		kill(j->pid, SIGCONT);
-// 		j->status = BACKGROUND;
-// 	}
-// 	else{
-// 		execute(pipe);
-// 	}
-} 
+	if(pid == 0){
+		
+		signal_unblock(SIGCHLD);
+		
+		int size = list_size(&pipeline->commands);
+		
+		int pipes[size+1][2];
+		for(int i = 0; i < size+1; i++){
+			pipe(pipes[i]);
+		}
+		
+		//int READ_END = 0;
+		//int WRITE_END = 1;
+		
+		//input file
+		//read from input file and pipe directly into write end of pipe////////////////////////////////////////////
+		int input_fd = -1;
+		if(pipeline->iored_input != NULL){
+			input_fd = open(pipeline->iored_input, O_RDONLY);
+		}
+		//output file
+		int output_fd = -1;
+		if(pipeline->iored_output != NULL){
+			if(pipeline->append_to_output){
+				output_fd = open(pipeline->iored_output, O_WRONLY | O_CREAT | O_APPEND, 0750);
+			}
+			else{
+				output_fd = open(pipeline->iored_output, O_WRONLY | O_CREAT, 0750);
+			}
+		}
+		
+		int com_num= 0;
+		int pid = 0;
+		
+		signal_block(SIGCHLD);
+		for (struct list_elem * e = list_begin(&pipeline->commands); 
+		e != list_end(&pipeline->commands); 
+		e = list_next(e)) {
+			struct ast_command* cmd = list_entry(e, struct ast_command, elem);
+			pid = fork();
+			
+			if(pid == 0){
+				
+				//pipeline pipes
+				for(int i = 0; i < size+1; i++){
+					if(i == com_num){
+						if(i == 0 && input_fd > 0){
+							dup2(input_fd, STDIN_FILENO);
+						}
+						else{
+							dup2(pipes[i][0], STDIN_FILENO);
+						}
+					}
+					else if(i == (com_num + 1)){
+						if(i == size && output_fd > 0){
+							dup2(output_fd, STDOUT_FILENO);
+						}
+						else{
+							dup2(pipes[i][1], STDOUT_FILENO);
+						}
+					}
+					close(pipes[i][0]);
+					close(pipes[i][1]);
+				}
+				execvp(*cmd->argv, cmd->argv);
+			}
+			cur_job->num_processes_alive += 1;
+			com_num++;
+		}
+		
+		signal_unblock(SIGCHLD);
+		
+		//parent pipes
+		//leave following pipes open:
+		//pipe[0][1] for writing to first cmd
+		//pipe[size][0] for reading from last cmd
+		for(int i = 0; i < size + 1; i++){
+			if(i == 0){
+				if(input_fd == -1){
+					dup2(STDIN_FILENO, pipes[i][1]);
+				}
+				else{
+					close(pipes[i][1]);
+				}
+				close(pipes[i][0]);
+			}
+			else if(i == size){
+				if(output_fd == -1){
+					dup2(STDOUT_FILENO, pipes[i][0]);
+				}
+				else{
+					close(pipes[i][0]);
+				}
+				close(pipes[i][1]);
+			}
+			else{
+				close(pipes[i][0]);
+				close(pipes[i][1]);
+			}
+		}
+		
+		//close remainging fds
+		if(input_fd > 0){
+			close(input_fd);
+		}
+		else{
+			close(pipes[0][1]);
+		}
+		
+		if(output_fd > 0){
+			close(output_fd);
+		}
+		else{
+			close(pipes[size][0]);
+		}
+		
+		while(cur_job->num_processes_alive > 0){
+			int status, id;
+			id = waitpid(-1, &status, WNOHANG);
+			if(id){
+				cur_job->num_processes_alive -= 1;
+			}
+		}
+		
+		//read from output pipe///////////////////////////////////////////////////////////////////////
+		
+		exit(0);
+	}
+	
+	cur_job->num_processes_alive += 1;
+	cur_job->pid = pid;
+	setpgid(pid, 0);
+	if(cur_job->status == FOREGROUND){
+		termstate_give_terminal_to(&cur_job->saved_tty_state, cur_job->pid);
+		wait_for_job(cur_job);
+	}
+	signal_unblock(SIGCHLD);
+				
+}
 
-
-/*static void check_jobs(){
-	for (struct list_elem * e3 = list_begin(&job_list); 
-	e3 != list_end(&job_list); 
-	e3 = list_next(e3)) {
-		struct job* j = list_entry(e3, struct job, elem);
-		//int s;
-		if(s = waitpid(pid, WNOHANG)){
-			delete_job(j);
-             //if(status != exited)
-             //{
-               //  if(checkExpiryTime() == true)
-                 //   kill(pid, SIGKILL);
-                 //else
-                   //sleep(x); // or whatever is appropriate in your case.
-             //}
-         }
+static void run_pipeline(struct ast_pipeline* pipe){
+	
+	//parse pipeline for command arguments, determine validity of built-in commands, and retrieve job number for appropriate builtins;
+	struct ast_command* com = list_entry(list_begin(&pipe->commands), struct ast_command, elem);
+	char** cmd_argv = com->argv;
+	int argc = 0;
+	char* cur = *cmd_argv;
+	while(cur != NULL){
+		argc++;
+		cur = *(cmd_argv + argc);
+	}
+	
+	char** trash = NULL;
+	
+	if(strcmp(*cmd_argv, "exit") == 0){
+		//call method to clean up all jobs and pipelines left/////////////////////////////////
+		exit(0);
+	}
+	else if(strcmp(*cmd_argv, "kill") == 0){
+		if(argc < 2){
+			//not enough arguments
+		}
+		else if(argc > 2){
+			//too many arguments
+		}
+		else{
+			struct job* j = get_job_from_jid((int)strtol(*(cmd_argv+1), trash, 10));
+			if(j == NULL){
+				//job not found
+			}
+			else{
+				kill(j->pid, SIGTERM);
+			}
+		}
+	}
+	else if(strcmp(*cmd_argv, "stop") == 0){
+		if(argc < 2){
+			//not enough arguments
+		}
+		else if(argc > 2){
+			//too many arguments
+		}
+		else{
+			struct job* j = get_job_from_jid((int)strtol(*(cmd_argv+1), trash, 10));
+			if(j == NULL){
+				//job not found
+			}
+			else{
+				kill(j->pid, SIGSTOP);
+			}
+		}
+	}
+	else if(strcmp(*cmd_argv, "jobs") == 0){
+		if(argc > 1){
+			//too many arguments
+		}
+		else if(argc < 1){
+			//not enough arguments
+		}
+		else{
+			for (struct list_elem * e3 = list_begin(&job_list); 
+			e3 != list_end(&job_list); 
+			e3 = list_next(e3)) {
+				struct job* j = list_entry(e3, struct job, elem);
+				print_job(j);
+			}
+		}
+	}
+	else if(strcmp(*cmd_argv, "fg") == 0){
+		//check for an existing foreground job???////////////////////////////////////////////////
+		if(argc < 1){
+			//too few arguments
+		}
+		else if(argc > 2){
+			//too many arguments
+		}
+		else{
+			struct job* j = NULL;
+			
+			if(argc == 1){
+				//get job from last stopped job
+				if(num_stop_job > 0){
+					j = get_job_from_jid(stopped_jobs[num_stop_job-1]);
+				}
+				else{
+					//no stopped jobs
+				}
+			}
+			else{
+				j = get_job_from_jid((int)strtol(*(cmd_argv+1), trash, 10));
+				if(j->status != STOPPED){
+					//job is currently running
+					return;
+				}
+			}
+			
+			if(j == NULL){
+				//job not found
+			}
+			else{
+				//set tty state
+				started_stop_job(j->jid);
+				termstate_give_terminal_to(&j->saved_tty_state, j->pid);
+				kill(j->pid, SIGCONT);
+				j->status = FOREGROUND;
+				wait_for_job(j);
+			}
+		}
+	}
+	else if(strcmp(*cmd_argv, "bg") == 0){
+		if(argc < 1){
+			//too few arguments
+		}
+		else if(argc > 2){
+			//too many arguments
+		}
+		else{
+			struct job* j = NULL;
+			
+			if(argc == 1){
+				//get job from last stopped job
+				if(num_stop_job > 0){
+					j = get_job_from_jid(stopped_jobs[num_stop_job-1]);
+				}
+				else{
+					//no stopped jobs
+				}
+			}
+			else{
+				j = get_job_from_jid((int)strtol(*(cmd_argv+1), trash, 10));
+				if(j->status != STOPPED){
+					//job is currently running
+					return;
+				}
+			}
+			
+			if(j == NULL){
+				//job not found
+			}
+			else{
+				started_stop_job(j->jid);
+				kill(j->pid, SIGCONT);
+				j->status = BACKGROUND;
+			}
+		}
+	}
+	else{
+		execute(pipe);
 	}
 }
-*/
-// static void execute(struct ast_pipeline* pipe){
-	
-// 	struct job* cur_job = add_job(pipe);
-				
-// 	int pid = fork();
-	
-// 	if(pid == 0){
-// 		int size = list_size(&pipe->commands);
-		
-// 		int pipes[size][2];
-// 		for(int i = 0; i < size; i++){
-// 			pipe(pipes[i]);
-// 		}
-		
-		
-		
-// 		exit();
-// 	}
-	
-// 	cur_job->num_processes_alive += 1;
-// 	cur_job->pid = pid;
-// 	setpgid(pid, 0);
-// 	if(cur_job->status = FOREGROUND){
-// 		tcsetpgrp(STDIN_FILENO, pid);
-// 		wait_for_job(cur_job);
-// 	}
-	
-// 				//string for output text, to print to console or to pass as input to next command////////////
-		
-// 				for (struct list_elem * e2 = list_begin(&pipe->commands); 
-// 				e2 != list_end(&pipe->commands); 
-// 				e2 = list_next(e2)) {
-// 					struct ast_command *cmd = list_entry(e2, struct ast_command, elem);
-// 					//how to input from file//////////////////////////////////////////////////////////////////
-			
-// 				}
-				
-// 				//print output to console or output file
-// }
 
 int main(int ac, char *av[]){
     int opt;
@@ -485,7 +713,7 @@ int main(int ac, char *av[]){
 	
 	
         /* Do not output a prompt unless shell's stdin is a terminal */
-        char * prompt = isatty(0) ? build_prompt(&com_num, custom_prompt) : NULL;
+        char * prompt = isatty(0) ? build_prompt(&com_num) : NULL;
         char * cmdline = readline(prompt);
         free (prompt);
 
@@ -508,7 +736,7 @@ int main(int ac, char *av[]){
 			e = list_next (e)) {
 				struct ast_pipeline *pipe = list_entry(e, struct ast_pipeline, elem);
 				
-				run_pipe(pipe);
+				run_pipeline(pipe);
 		
 			}
 			
