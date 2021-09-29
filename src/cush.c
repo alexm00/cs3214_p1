@@ -58,7 +58,7 @@ build_prompt(int* com_num, char custom_prompt[]){
                 printf("%s", hostname);
             }
             else if (character == 'd'){
-                printf("%d-%02d-%02d ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+                printf("%d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
             }
             else if (character == 'T'){
                 printf("%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
@@ -74,7 +74,7 @@ build_prompt(int* com_num, char custom_prompt[]){
                 printf("%s", getenv(directory));
             }
             else if (character == '!'){
-                printf("%d ", *com_num);
+                printf("%d", *com_num);
             }
             else if (character == 'n'){
                 printf("\n");
