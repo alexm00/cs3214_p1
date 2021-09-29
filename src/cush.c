@@ -21,6 +21,7 @@
 #include "signal_support.h"
 #include "shell-ast.h"
 #include "utils.h"
+static char custom_prompt[] = "/u";
 
 static void handle_child_status(pid_t pid, int status);
 
@@ -36,11 +37,38 @@ usage(char *progname)
 
 /* Build a prompt */
 static char *
-build_prompt(int* com_num){
-	
-	(*com_num) += 1;
-	
-    return strdup(" cush> ");
+build_prompt(int* com_num, char custom_prompt[]){
+	if (strcmp(custom_prompt, "Empty") == 0) {
+	    (*com_num) += 1;
+	    char *username;
+        username = "USER";
+        char hostname[100];
+        char *directory;
+        directory = "PWD";
+        gethostname(hostname, 100);
+        printf("%d %s@%s in %s > ", *com_num, getenv(username), hostname, basename(getenv(directory)));
+    }
+    else{
+        (*com_num) += 1;
+        printf("%d ", *com_num);
+        bool slash_checker = false;
+        char character;
+        for (int i = 0; i < strlen(custom_prompt); i++) {
+            character = custom_prompt[i];
+            if (slash_checker){
+                if (character == 'u'){
+                    char *username;
+                    username = "USER";
+                    printf("%s", getenv(username));
+                    slash_checker = false;
+                }
+            }
+            else if (character == '/'){
+                slash_checker = true;
+            }
+        }
+    }
+    return strdup("");
 }
 
 enum job_status {
@@ -287,15 +315,15 @@ handle_child_status(pid_t pid, int status){
 			}
 		}
 		else if(WIFSTOPPED(status)){
-			if(j->status = FOREGROUND){
+			if(j->status == FOREGROUND){
 				//save tty state///////////////////////////////////////////////////////////////////////
 				j->saved_tty_state = j->saved_tty_state;
-				job->status = STOPPED;
+				j->status = STOPPED;
 			}
 			else{
-				job->status = STOPPED;
+				j->status = STOPPED;
 				if(WSTOPSIG(status) == SIGTTOU || WSTOPSIG(status) == SIGTTIN){
-					job->status = NEEDSTERMINAL;
+					j->status = NEEDSTERMINAL;
 				}
 			}
 
@@ -304,46 +332,47 @@ handle_child_status(pid_t pid, int status){
 }
 
 static void run_pipe(struct ast_pipeline *pipe){//, bool in_pipe = False){ //incase I add commands in pipeline can be built-ins
-	char** av = pipe->commands->argv;
+// 	char** av = pipe->commands->argv;
 	
-	//parse pipeline for command arguments, determine validity of built-in commands, and retrieve job number for appropriate builtins;
+// 	//parse pipeline for command arguments, determine validity of built-in commands, and retrieve job number for appropriate builtins;
 	
-	if(strcmp(cmd, "exit") == 0){
-		//call method to clean up all jobs and pipelines left/////////////////////////////////
-		exit(0);
-	}
-	else if(strcmp(cmd, "kill") == 0){
-		kill(get_job_from_jid(id)->pid, SIGTERM);
-	}
-	else if(strcmp(cmd, "stop") == 0){
-		kill(get_job_from_jid(id)->pid, SIGSTP);
-	}
-	else if(strcmp(cmd, "jobs") == 0){
-		for (struct list_elem * e3 = list_begin(&job_list); 
-		e3 != list_end(&job_list); 
-		e3 = list_next(e3)) {
-			struct job* j = list_entry(e3, struct job, elem);
-			print_job(j);
-		}
-	}
-	else if(strcmp(cmd, "fg") == 0){
-		//check for an existing foreground job???////////////////////////////////////////////////
-		struct job* j = get_job_from_jid(id);
-		//set tty state////////////////////////////////////////////////////////////////////////
-		kill(j->pid, SIGCONT);
-		j->status = FOREGROUND;
-		tcsetpgrp(STDIN_FILENO, j->pid);
-		wait_for_job(j);
-	}
-	else if(strcmp(cmd, "bg") == 0){
-		struct job* j = get_job_from_jid(id);
-		kill(j->pid, SIGCONT);
-		j->status = BACKGROUND;
-	}
-	else{
-		execute(pipe);
-	}
-}
+// 	if(strcmp(cmd, "exit") == 0){
+// 		//call method to clean up all jobs and pipelines left/////////////////////////////////
+// 		exit(0);
+// 	}
+// 	else if(strcmp(cmd, "kill") == 0){
+// 		kill(get_job_from_jid(id)->pid, SIGTERM);
+// 	}
+// 	else if(strcmp(cmd, "stop") == 0){
+// 		kill(get_job_from_jid(id)->pid, SIGSTP);
+// 	}
+// 	else if(strcmp(cmd, "jobs") == 0){
+// 		for (struct list_elem * e3 = list_begin(&job_list); 
+// 		e3 != list_end(&job_list); 
+// 		e3 = list_next(e3)) {
+// 			struct job* j = list_entry(e3, struct job, elem);
+// 			print_job(j);
+// 		}
+// 	}
+// 	else if(strcmp(cmd, "fg") == 0){
+// 		//check for an existing foreground job???////////////////////////////////////////////////
+// 		struct job* j = get_job_from_jid(id);
+// 		//set tty state////////////////////////////////////////////////////////////////////////
+// 		kill(j->pid, SIGCONT);
+// 		j->status = FOREGROUND;
+// 		tcsetpgrp(STDIN_FILENO, j->pid);
+// 		wait_for_job(j);
+// 	}
+// 	else if(strcmp(cmd, "bg") == 0){
+// 		struct job* j = get_job_from_jid(id);
+// 		kill(j->pid, SIGCONT);
+// 		j->status = BACKGROUND;
+// 	}
+// 	else{
+// 		execute(pipe);
+// 	}
+} 
+
 
 /*static void check_jobs(){
 	for (struct list_elem * e3 = list_begin(&job_list); 
@@ -364,45 +393,45 @@ static void run_pipe(struct ast_pipeline *pipe){//, bool in_pipe = False){ //inc
 	}
 }
 */
-static void execute(struct ast_pipeline* pipe){
+// static void execute(struct ast_pipeline* pipe){
 	
-	struct job* cur_job = add_job(pipe);
+// 	struct job* cur_job = add_job(pipe);
 				
-	int pid = fork();
+// 	int pid = fork();
 	
-	if(pid == 0){
-		int size = list_size(&pipe->commands);
+// 	if(pid == 0){
+// 		int size = list_size(&pipe->commands);
 		
-		int pipes[size][2];
-		for(int i = 0; i < size; i++){
-			pipe(pipes[i]);
-		}
+// 		int pipes[size][2];
+// 		for(int i = 0; i < size; i++){
+// 			pipe(pipes[i]);
+// 		}
 		
 		
 		
-		exit();
-	}
+// 		exit();
+// 	}
 	
-	cur_job->num_processes_alive += 1;
-	cur_job->pid = pid;
-	setpgid(pid, 0);
-	if(cur_job->status = FOREGROUND){
-		tcsetpgrp(STDIN_FILENO, pid);
-		wait_for_job(cur_job);
-	}
+// 	cur_job->num_processes_alive += 1;
+// 	cur_job->pid = pid;
+// 	setpgid(pid, 0);
+// 	if(cur_job->status = FOREGROUND){
+// 		tcsetpgrp(STDIN_FILENO, pid);
+// 		wait_for_job(cur_job);
+// 	}
 	
-				//string for output text, to print to console or to pass as input to next command////////////
+// 				//string for output text, to print to console or to pass as input to next command////////////
 		
-				for (struct list_elem * e2 = list_begin(&pipe->commands); 
-				e2 != list_end(&pipe->commands); 
-				e2 = list_next(e2)) {
-					struct ast_command *cmd = list_entry(e2, struct ast_command, elem);
-					//how to input from file//////////////////////////////////////////////////////////////////
+// 				for (struct list_elem * e2 = list_begin(&pipe->commands); 
+// 				e2 != list_end(&pipe->commands); 
+// 				e2 = list_next(e2)) {
+// 					struct ast_command *cmd = list_entry(e2, struct ast_command, elem);
+// 					//how to input from file//////////////////////////////////////////////////////////////////
 			
-				}
+// 				}
 				
-				//print output to console or output file
-}
+// 				//print output to console or output file
+// }
 
 int main(int ac, char *av[]){
     int opt;
@@ -420,7 +449,7 @@ int main(int ac, char *av[]){
     signal_set_handler(SIGCHLD, sigchld_handler);
     termstate_init();
 
-	int com_num = -1;
+	int com_num = 0;
     /* Read/eval loop. */
     for (;;) {
 
@@ -429,7 +458,7 @@ int main(int ac, char *av[]){
 	
 	
         /* Do not output a prompt unless shell's stdin is a terminal */
-        char * prompt = isatty(0) ? build_prompt(&com_num) : NULL;
+        char * prompt = isatty(0) ? build_prompt(&com_num, custom_prompt) : NULL;
         char * cmdline = readline(prompt);
         free (prompt);
 
