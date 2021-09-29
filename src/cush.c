@@ -13,6 +13,7 @@
 #include <termios.h>
 #include <sys/wait.h>
 #include <assert.h>
+#include <time.h>
 
 /* Since the handed out code contains a number of unused functions. */
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -21,7 +22,7 @@
 #include "signal_support.h"
 #include "shell-ast.h"
 #include "utils.h"
-static char custom_prompt[] = "/u";
+static char custom_prompt[] = "/! /u@/h in /W";
 
 static void handle_child_status(pid_t pid, int status);
 
@@ -38,36 +39,62 @@ usage(char *progname)
 /* Build a prompt */
 static char *
 build_prompt(int* com_num, char custom_prompt[]){
-	if (strcmp(custom_prompt, "Empty") == 0) {
-	    (*com_num) += 1;
-	    char *username;
-        username = "USER";
-        char hostname[100];
-        char *directory;
-        directory = "PWD";
-        gethostname(hostname, 100);
-        printf("%d %s@%s in %s > ", *com_num, getenv(username), hostname, basename(getenv(directory)));
-    }
-    else{
-        (*com_num) += 1;
-        printf("%d ", *com_num);
-        bool slash_checker = false;
-        char character;
-        for (int i = 0; i < strlen(custom_prompt); i++) {
-            character = custom_prompt[i];
-            if (slash_checker){
-                if (character == 'u'){
-                    char *username;
-                    username = "USER";
-                    printf("%s", getenv(username));
-                    slash_checker = false;
+    (*com_num) += 1;
+    bool slash_checker = false;
+    char character;
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    for (int i = 0; i < strlen(custom_prompt); i++) {
+        character = custom_prompt[i];
+        if (slash_checker){
+            if (character == 'u'){
+                char *username;
+                username = "USER";
+                printf("%s", getenv(username));
+            }
+            else if (character == 'h'){
+                char hostname[100];
+                gethostname(hostname, 100);
+                printf("%s", hostname);
+            }
+            else if (character == 'd'){
+                printf("%d-%02d-%02d ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+            }
+            else if (character == 'T'){
+                printf("%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+            }
+            else if (character == 'W'){
+                char *directory;
+                directory = "PWD";
+                printf("%s", basename(getenv(directory)));
+            }
+            else if (character == 'w'){
+                char *directory;
+                directory = "PWD";
+                printf("%s", getenv(directory));
+            }
+            else if (character == '!'){
+                printf("%d ", *com_num);
+            }
+            else if (character == 'n'){
+                printf("\n");
+            }
+            else {
+                printf("%s", &character);
+                if (character == '/') {
+                    printf("/");
                 }
             }
-            else if (character == '/'){
-                slash_checker = true;
-            }
+            slash_checker = false;
+        }
+        else if (character == '/'){
+            slash_checker = true;
+        }
+        else {
+            printf("%s", &character);
         }
     }
+    printf(" > ");
     return strdup("");
 }
 
