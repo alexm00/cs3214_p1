@@ -112,74 +112,56 @@ build_prompt(int* com_num){
 	int count = 0;
 	while(count < prompt_size){
 		
-		switch(cur_char){
-			case 'u':
-				if(special){
+		if(special){
+			switch(cur_char){
+				case 'u':
 					printf("%s", getenv("USER"));
-					special = false;
-				}
-				break;
-			case 'h':
-				if(special){
+					break;
+				case 'h': ;
 					char host_field[33];
 					gethostname(host_field, 32);
 					host_field[32] = '\0';
 					printf("%s", host_field);
-					special = false;
-				}
-				break;
-			case 'w':
-				if(special){
+					break;
+				case 'w':
 					printf("%s", getenv("PWD"));
-					special = false;
-				}
-				break;
-			case 'W':
-				if(special){
+					break;
+				case 'W':
 					printf("%s", basename(getenv("PWD")));
-					special = false;
-				}
-				break;
-			case 'd':
-				if(special){
+					break;
+				case 'd':
 					printf("%d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-					special = false;
-				)
-				break;
-			case 'T':
-				if(special){
+					break;
+				case 'T':
 					printf("%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-					special = false;
-				)
-				break;
-			case '!': ;
-				printf("%d", *com_num);
-				break;
-			case 'n':
-				if(special){
+					break;
+				case 'n':
 					printf("\n");
-					special = false;
-				}
-				else{
-					printf("n");
-				}
-				break;
-			case '\\':
-				special = true;
-				break;
-			case 'c':
-				if(special){
+					break;
+				case '\\':
+					special = true;
+					break;
+				case 'c':
 					printf("cush");
-					special = false;
-				}
-				break;
-			default:
-				if(special){
+					break;
+				case '!':
+					printf("!");
+					break;
+				default:
 					printf("\\");
-					special = false;
-				}
-				printf("%c", cur_char);
-				break;
+					printf("%c", cur_char);
+					break;
+			}
+			special = false;
+		}
+		else if(cur_char == '!'){
+			printf("%d", *com_num);
+		}
+		else if(cur_char == '\\'){
+			special = true;
+		}
+		else{
+			printf("%c", cur_char);
 		}
 		count++;
 		cur_char = *(custom_prompt + count);
@@ -831,6 +813,18 @@ static void run_pipeline(struct ast_pipeline* pipe){
 				printf("bg on job: %d was unsuccessful\n", jid);
 			}
 			termstate_give_terminal_back_to_shell();
+		}
+	}
+	else if(strcmp(*cmd_argv, "prompt") == 0){
+		if(argc == 1){
+			printf("The current prompt expression is: \'%s\'\n", custom_prompt);
+		}
+		else if(argc == 2){
+			custom_prompt = *(cmd_argv + 1);
+			printf("Set the prompt expression to: \'%s\'\n", custom_prompt);
+		}
+		else{
+			printf("Incorrect number of arguments for command 'prompt'\n");
 		}
 	}
 	else{
