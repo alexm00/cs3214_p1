@@ -23,13 +23,13 @@
 #include "signal_support.h"
 #include "shell-ast.h"
 #include "utils.h"
-//static char custom_prompt[] = "/! /u@/h in /W";
 
 static void handle_child_status(pid_t pid, int status);
 
+static char* custom_prompt = "! \\u@\\h in \\W> ";
+
 static void
-usage(char *progname)
-{
+usage(char *progname){
     printf("Usage: %s -h\n"
         " -h            print this help\n",
         progname);
@@ -37,10 +37,154 @@ usage(char *progname)
     exit(EXIT_SUCCESS);
 }
 
-static char *
+static char* num_to_str(int num){
+	char* num_str = calloc(25, sizeof(char));
+	int count = 0;
+	if(num < 0){
+		num_str[count] = '-';
+		count++;
+	}
+	do{
+		switch(num % 10){
+			case 0:
+				num_str[count] = '0';
+				break;
+			case 1:
+				num_str[count] = '1';
+				break;
+			case 2:
+				num_str[count] = '2';
+				break;
+			case 3:
+				num_str[count] = '3';
+				break;
+			case 4:
+				num_str[count] = '4';
+				break;
+			case 5:
+				num_str[count] = '5';
+				break;
+			case 6:
+				num_str[count] = '6';
+				break;
+			case 7:
+				num_str[count] = '7';
+				break;
+			case 8:
+				num_str[count] = '8';
+				break;
+			case 9:
+				num_str[count] = '9';
+				break;
+		}
+		count++;
+		num = num / 10;
+	}
+	while(num != 0);
+	return num_str;
+}
+
+static void concat(char* cat_to, char* cat_on){
+	
+	int size1 = strlen(cat_to);
+	int size2 = strlen(cat_on);
+	
+	cat_to = realloc(cat_to, size1 + size2 + 1);
+	cat_to[size1 + size2] = '\0';
+	
+	int count = 0;
+	while(count < size2){
+		cat_to[size1 + count] = cat_on[count];
+		count++;
+	}
+	
+}
+
+static char*
 build_prompt(int* com_num){
+	
     (*com_num) += 1;
-	return strdup("cush > ");
+	int prompt_size = strlen(custom_prompt);
+	char cur_char = *custom_prompt;
+	bool special = false;
+	time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+	int count = 0;
+	while(count < prompt_size){
+		
+		switch(cur_char){
+			case 'u':
+				if(special){
+					printf("%s", getenv("USER"));
+					special = false;
+				}
+				break;
+			case 'h':
+				if(special){
+					char host_field[33];
+					gethostname(host_field, 32);
+					host_field[32] = '\0';
+					printf("%s", host_field);
+					special = false;
+				}
+				break;
+			case 'w':
+				if(special){
+					printf("%s", getenv("PWD"));
+					special = false;
+				}
+				break;
+			case 'W':
+				if(special){
+					printf("%s", basename(getenv("PWD")));
+					special = false;
+				}
+				break;
+			case 'd':
+				if(special){
+					printf("%d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+					special = false;
+				)
+				break;
+			case 'T':
+				if(special){
+					printf("%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+					special = false;
+				)
+				break;
+			case '!': ;
+				printf("%d", *com_num);
+				break;
+			case 'n':
+				if(special){
+					printf("\n");
+					special = false;
+				}
+				else{
+					printf("n");
+				}
+				break;
+			case '\\':
+				special = true;
+				break;
+			case 'c':
+				if(special){
+					printf("cush");
+					special = false;
+				}
+				break;
+			default:
+				if(special){
+					printf("\\");
+					special = false;
+				}
+				printf("%c", cur_char);
+				break;
+		}
+		count++;
+		cur_char = *(custom_prompt + count);
+	}
+	return strdup("");
 }
 
 enum job_status {
