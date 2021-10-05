@@ -620,6 +620,9 @@ static void run_pipeline(struct ast_pipeline* pipe){
 			}
 			else{ //if job was found
 				int ret_status = killpg(j->pid, SIGTERM); //set signal
+				if(ret_status != 0){
+					list_remove(&j->elem);
+				}
 				if(ret_status < 0){ //signal failure
 					printf("Kill on job: %d was unsuccessful\n", jid);
 				}
